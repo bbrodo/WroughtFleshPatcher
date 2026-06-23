@@ -11,7 +11,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 
-APP_TITLE = "Mod Patcher"
+APP_TITLE = "Wrought Flesh Patcher"
 DEFAULT_MANIFEST_NAME = "manifest.json"
 PATCHES_DIR_NAME = "patches"
 
@@ -20,6 +20,12 @@ def app_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
+
+
+def bundled_dir() -> Path:
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS).resolve()
+    return app_dir()
 
 
 def sha256_file(path: Path) -> str:
@@ -64,10 +70,11 @@ def default_manifest_path() -> Path | None:
 
 def find_xdelta() -> Path:
     exe_name = "xdelta3.exe" if os.name == "nt" else "xdelta3"
-    xdelta_path = app_dir() / exe_name
-    if not xdelta_path.exists():
-        raise FileNotFoundError(f"Missing {xdelta_path}")
-    return xdelta_path
+    for base_dir in (app_dir(), bundled_dir()):
+        xdelta_path = base_dir / exe_name
+        if xdelta_path.exists():
+            return xdelta_path
+    raise FileNotFoundError(f"Missing {exe_name}")
 
 
 def parse_steam_libraryfolders(path: Path) -> list[Path]:

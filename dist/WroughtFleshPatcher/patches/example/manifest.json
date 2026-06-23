@@ -1,0 +1,10 @@
+{
+  "name": "Example Mod",
+  "steam_app_id": 0,
+  "steam_install_dir": "Wrought Flesh",
+  "target_file": "WroughtFlesh.pck",
+  "original_sha256": "replace_with_sha256_of_clean_original_pck",
+  "patched_sha256": "replace_with_sha256_of_modded_pck",
+  "patch_file": "wroughtflesh_mod.xdelta",
+  "backup_suffix": ".bak"
+}
