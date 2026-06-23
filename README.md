@@ -88,28 +88,6 @@ Get-FileHash .\patched.pck -Algorithm SHA256
 
 The patched hash must match `modded.pck`.
 
-## Build An EXE
-
-Install PyInstaller:
-
-```powershell
-py -m pip install pyinstaller
-```
-
-Build:
-
-```powershell
-py -m PyInstaller --onefile --windowed --name ModPatcher .\patcher_gui.py
-```
-
-The exe will be in:
-
-```text
-dist/ModPatcher.exe
-```
-
-Keep `xdelta3.exe` and the `patches` folder next to the exe.
-
 ## What The GUI Does
 
 1. Lets the user select a patch manifest.
