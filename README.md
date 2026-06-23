@@ -24,6 +24,12 @@ patches/
 Users click `Select Patch`, choose a mod's `manifest.json`, choose their game
 folder, then click `Apply Patch`.
 
+## Included Patch
+
+The `patches/ModdedFlesh` folder includes ModdedFlesh, a mod for the current
+version of Wrought Flesh. This mod aims to fix bugs and performance issues
+introduced in newer versions of the game.
+
 During development, run the Python script directly:
 
 ```powershell
