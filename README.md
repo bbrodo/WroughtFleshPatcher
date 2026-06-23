@@ -6,6 +6,12 @@ It does not distribute the original game file.
 The GUI supports multiple mods. Each mod provides its own patch manifest with
 its own source hash, patched hash, and `.xdelta` file.
 
+## Screenshots
+
+![Wrought Flesh Patcher main window](screenshot.PNG)
+
+![Wrought Flesh Patcher after selecting a patch](screenshot2.PNG)
+
 ## End-User Folder Layout
 
 Distribute a folder like this:
