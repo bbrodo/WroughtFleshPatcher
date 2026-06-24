@@ -28,7 +28,16 @@ patches/
 ```
 
 On the `Apply Patch` tab, users click `Select Patch`, choose a mod's
-`manifest.json`, choose their game folder, then click `Apply Patch`.
+`manifest.json`, confirm their game folder, then click `Apply Patch`. On
+startup, the game folder is auto-detected from Steam app ID `1762010` when
+Wrought Flesh is installed through Steam.
+
+When a patch is installed, the patcher writes
+`wroughtflesh_patcher_install.json` into the selected game folder. This file
+records the active patch name, target file, hashes, and backup suffix. If a user
+later applies a different patch, the patcher reads this marker and automatically
+restores the original file from the previous backup before applying the new
+patch.
 
 ## ModdedFlesh
 
@@ -67,13 +76,22 @@ file next to its own manifest.
 
 Use the `Create Patch` tab to generate a patch folder from a clean original file
 and a modded file. Fill in the mod name, target file, original file, modded file,
-and output folder, then click `Create Patch`.
+and output folder, then click `Create Patch`. The output folder should usually
+be `patches/`; the tool creates a subfolder named after the patch filename and
+writes the patch files there.
+
+If the game is currently patched, you can use the existing game backup as the
+clean original without uninstalling first. Click `Use Game Backup As Original`,
+or leave `Original file` blank and the tool will try to use
+`WroughtFlesh.pck.bak` from the selected game folder.
 
 The tool creates:
 
 ```text
-manifest.json
-your_patch_name.xdelta
+patches/
+  your_patch_name/
+    manifest.json
+    your_patch_name.xdelta
 ```
 
 The generated `manifest.json` includes the original file hash, patched file
@@ -127,6 +145,8 @@ The patched hash must match `modded.pck`.
 6. Runs `xdelta3`.
 7. Verifies the patched hash.
 8. Replaces the target file.
-9. Can uninstall by restoring the backup.
-10. Can create a new `.xdelta` patch and `manifest.json` from original and
+9. Writes `wroughtflesh_patcher_install.json` in the game folder.
+10. Automatically uninstalls an older recorded patch before applying a new one.
+11. Can uninstall by restoring the backup and removing the install marker.
+12. Can create a new `.xdelta` patch and `manifest.json` from original and
     modded files.

@@ -5,3 +5,7 @@ _pycache
 
 build/
 dist/
+
+patches/*
+!patches/example/
+!patches/example/**

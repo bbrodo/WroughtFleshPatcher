@@ -14,6 +14,10 @@ from tkinter import filedialog, messagebox, ttk
 APP_TITLE = "Wrought Flesh Patcher"
 DEFAULT_MANIFEST_NAME = "manifest.json"
 PATCHES_DIR_NAME = "patches"
+INSTALL_MARKER_NAME = "wroughtflesh_patcher_install.json"
+INSTALL_MARKER_SCHEMA = 1
+DEFAULT_STEAM_APP_ID = 1762010
+DEFAULT_STEAM_INSTALL_DIR = "Wrought Flesh"
 
 
 def app_dir() -> Path:
@@ -59,18 +63,22 @@ def load_manifest(manifest_path: Path) -> dict:
     return manifest
 
 
+def patch_id(manifest: dict) -> str:
+    name = str(manifest.get("name", "")).strip()
+    patched_hash = str(manifest.get("patched_sha256", "")).lower()
+    target_file = str(manifest.get("target_file", "")).strip()
+    return sha256_text(f"{name}\n{target_file}\n{patched_hash}")[:16]
+
+
+def sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest().lower()
+
+
 def default_manifest_path() -> Path | None:
     default_path = app_dir() / DEFAULT_MANIFEST_NAME
     if default_path.exists():
         return default_path
 
-    patches_dir = app_dir() / PATCHES_DIR_NAME
-    if not patches_dir.exists():
-        return None
-
-    manifests = sorted(patches_dir.glob("*/manifest.json"))
-    if len(manifests) == 1:
-        return manifests[0]
     return None
 
 
@@ -179,6 +187,7 @@ class PatcherApp(tk.Tk):
                 self.set_progress(0, "Choose a patch manifest.")
         else:
             self.write_log("Choose a patch manifest to begin.")
+        self._try_auto_detect_default_game_folder()
 
     def _build_ui(self):
         root = ttk.Frame(self, padding=16)
@@ -247,6 +256,11 @@ class PatcherApp(tk.Tk):
 
         button_row = ttk.Frame(root)
         button_row.pack(fill=tk.X, pady=(18, 0))
+        ttk.Button(
+            button_row,
+            text="Use Game Backup As Original",
+            command=self.use_game_backup_as_original,
+        ).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(button_row, text="Create Patch", command=lambda: self.run_worker(self.create_patch)).pack(side=tk.LEFT)
 
     def _add_entry_row(self, root, label, variable, row):
@@ -303,13 +317,20 @@ class PatcherApp(tk.Tk):
     def _try_auto_detect(self):
         if not self.manifest:
             return
-        app_id = self.manifest.get("steam_app_id")
-        if not app_id:
-            return
-        install_path = find_steam_install(int(app_id), self.manifest.get("steam_install_dir"))
+        app_id = int(self.manifest.get("steam_app_id") or DEFAULT_STEAM_APP_ID)
+        install_dir_name = self.manifest.get("steam_install_dir") or DEFAULT_STEAM_INSTALL_DIR
+        install_path = find_steam_install(app_id, install_dir_name)
         if install_path:
             self.install_dir.set(str(install_path))
             self.write_log(f"Detected Steam install: {install_path}")
+
+    def _try_auto_detect_default_game_folder(self):
+        if self.install_dir.get().strip():
+            return
+        install_path = find_steam_install(DEFAULT_STEAM_APP_ID, DEFAULT_STEAM_INSTALL_DIR)
+        if install_path:
+            self.install_dir.set(str(install_path))
+            self.write_log(f"Detected Wrought Flesh Steam install: {install_path}")
 
     def browse(self):
         folder = filedialog.askdirectory(title="Select game folder")
@@ -317,7 +338,15 @@ class PatcherApp(tk.Tk):
             self.install_dir.set(folder)
 
     def browse_file(self, variable: tk.StringVar):
-        path = filedialog.askopenfilename(title="Select file")
+        path = filedialog.askopenfilename(
+            title="Select file",
+            filetypes=[
+                ("Game and backup files", "*.pck *.bak"),
+                ("Backup files", "*.bak"),
+                ("PCK files", "*.pck"),
+                ("All files", "*.*"),
+            ],
+        )
         if path:
             variable.set(path)
 
@@ -325,6 +354,28 @@ class PatcherApp(tk.Tk):
         folder = filedialog.askdirectory(title="Select folder")
         if folder:
             variable.set(folder)
+
+    def create_tab_backup_original_path(self) -> Path:
+        folder = self.game_folder()
+        target_file = self.create_target_file.get().strip()
+        if not target_file:
+            raise ValueError("Target file is required.")
+
+        backup_suffix = ".bak"
+        marker = self.read_install_marker()
+        if marker and marker.get("target_file") == target_file:
+            backup_suffix = str(marker.get("backup_suffix") or backup_suffix)
+        return folder / f"{target_file}{backup_suffix}"
+
+    def use_game_backup_as_original(self):
+        try:
+            backup = self.create_tab_backup_original_path()
+            if not backup.exists():
+                raise FileNotFoundError(f"Could not find backup file: {backup}")
+            self.create_original_file.set(str(backup))
+            self.write_log(f"Using game backup as original file: {backup}")
+        except Exception as exc:
+            messagebox.showerror(APP_TITLE, str(exc))
 
     def run_worker(self, func):
         thread = threading.Thread(target=self._worker_wrapper, args=(func,), daemon=True)
@@ -358,30 +409,121 @@ class PatcherApp(tk.Tk):
             raise FileNotFoundError("Game folder does not exist.")
         return folder
 
+    def install_marker_path(self) -> Path:
+        return self.game_folder() / INSTALL_MARKER_NAME
+
+    def read_install_marker(self) -> dict | None:
+        marker_path = self.install_marker_path()
+        if not marker_path.exists():
+            return None
+        with marker_path.open("r", encoding="utf-8") as file:
+            marker = json.load(file)
+        if not isinstance(marker, dict):
+            raise ValueError(f"{INSTALL_MARKER_NAME} is not a valid patch marker.")
+        return marker
+
+    def write_install_marker(self):
+        marker = {
+            "schema": INSTALL_MARKER_SCHEMA,
+            "patch_id": patch_id(self.manifest),
+            "name": self.manifest.get("name", ""),
+            "target_file": self.target_file,
+            "original_sha256": self.manifest["original_sha256"].lower(),
+            "patched_sha256": self.manifest["patched_sha256"].lower(),
+            "backup_suffix": self.backup_suffix,
+        }
+        marker_path = self.install_marker_path()
+        marker_path.write_text(json.dumps(marker, indent=2) + "\n", encoding="utf-8")
+        self.write_log(f"Wrote install marker: {marker_path}")
+
+    def remove_install_marker(self):
+        marker_path = self.install_marker_path()
+        if marker_path.exists():
+            marker_path.unlink()
+            self.write_log(f"Removed install marker: {marker_path}")
+
     def target_path(self) -> Path:
         path = self.game_folder() / self.target_file
         if not path.exists():
             raise FileNotFoundError(f"Could not find {self.target_file} in the selected folder.")
         return path
 
-    def backup_path(self) -> Path:
+    def backup_path(self, backup_suffix: str | None = None) -> Path:
         target = self.target_path()
-        return target.with_name(target.name + self.backup_suffix)
+        suffix = self.backup_suffix if backup_suffix is None else backup_suffix
+        return target.with_name(target.name + suffix)
+
+    def restore_backup(self, expected_hash: str, backup_suffix: str | None = None):
+        target = self.target_path()
+        backup = self.backup_path(backup_suffix)
+        if not backup.exists():
+            raise FileNotFoundError("No backup file was found.")
+
+        self.write_log("Restoring backup...")
+        shutil.copy2(backup, target)
+
+        restored_hash = sha256_file(target)
+        if restored_hash != expected_hash.lower():
+            raise ValueError("Backup restored, but its hash does not match the expected original.")
+
+        self.remove_install_marker()
+        self.write_log("Original file restored successfully.")
+
+    def uninstall_active_patch_before_apply(self, target: Path, actual_hash: str, original_hash: str) -> str:
+        marker = self.read_install_marker()
+        if not marker:
+            return actual_hash
+
+        marker_target = marker.get("target_file")
+        marker_hash = str(marker.get("patched_sha256", "")).lower()
+        marker_name = marker.get("name") or "previous patch"
+        marker_backup_suffix = str(marker.get("backup_suffix") or self.backup_suffix)
+
+        if marker_target != self.target_file:
+            self.write_log(f"Ignoring install marker for a different target: {marker_target}")
+            return actual_hash
+
+        if actual_hash == original_hash:
+            self.write_log("Install marker found, but target is already original. Removing stale marker.")
+            self.remove_install_marker()
+            return actual_hash
+
+        if actual_hash != marker_hash:
+            raise ValueError(
+                "An install marker exists, but the target file does not match the recorded patch. "
+                "Uninstall manually or restore a clean game file before patching."
+            )
+
+        self.write_log(f"Detected installed patch: {marker_name}")
+        self.set_progress(20, "Uninstalling previous patch...")
+        self.restore_backup(original_hash, marker_backup_suffix)
+        return sha256_file(target)
 
     def verify_only(self):
         self.require_manifest()
         target = self.target_path()
         self.write_log(f"Checking {target}")
+        marker = self.read_install_marker()
         actual_hash = sha256_file(target)
         original_hash = self.manifest["original_sha256"].lower()
         patched_hash = self.manifest["patched_sha256"].lower()
+        current_patch_id = patch_id(self.manifest)
 
         if actual_hash == original_hash:
+            if marker:
+                self.write_log("Install marker exists, but file is original.")
             self.set_progress(100, "Verified original file. Ready to patch.")
             self.write_log("File matches original hash.")
         elif actual_hash == patched_hash:
-            self.set_progress(100, "Verified patched file. Mod is already installed.")
+            if marker and marker.get("patch_id") == current_patch_id:
+                self.set_progress(100, "Verified patched file. This patch is installed.")
+            else:
+                self.set_progress(100, "Verified patched file. Marker will be updated on apply.")
             self.write_log("File matches patched hash.")
+        elif marker and marker.get("target_file") == self.target_file:
+            marker_name = marker.get("name") or "previous patch"
+            self.set_progress(100, f"Detected installed patch: {marker_name}")
+            self.write_log(f"Install marker indicates active patch: {marker_name}")
         else:
             raise ValueError(
                 "File hash does not match the supported original or patched file. "
@@ -406,7 +548,9 @@ class PatcherApp(tk.Tk):
         if actual_hash == patched_hash:
             self.set_progress(100, "Mod is already installed.")
             self.write_log("Target already matches patched hash.")
+            self.write_install_marker()
             return
+        actual_hash = self.uninstall_active_patch_before_apply(target, actual_hash, original_hash)
         if actual_hash != original_hash:
             raise ValueError("Target file is not the supported original version.")
 
@@ -437,25 +581,19 @@ class PatcherApp(tk.Tk):
             shutil.copy2(output, target)
 
         self.set_progress(100, "Patch installed.")
+        self.write_install_marker()
         self.write_log("Patch installed successfully.")
 
     def uninstall(self):
         self.require_manifest()
-        target = self.target_path()
-        backup = self.backup_path()
-        if not backup.exists():
-            raise FileNotFoundError("No backup file was found.")
-
-        self.write_log("Restoring backup...")
-        shutil.copy2(backup, target)
-
-        restored_hash = sha256_file(target)
         original_hash = self.manifest["original_sha256"].lower()
-        if restored_hash != original_hash:
-            raise ValueError("Backup restored, but its hash does not match the expected original.")
+        marker = self.read_install_marker()
+        marker_backup_suffix = None
+        if marker and marker.get("target_file") == self.target_file:
+            marker_backup_suffix = str(marker.get("backup_suffix") or self.backup_suffix)
+        self.restore_backup(original_hash, marker_backup_suffix)
 
         self.set_progress(100, "Uninstalled. Original file restored.")
-        self.write_log("Original file restored successfully.")
 
     def create_patch(self):
         xdelta = find_xdelta()
@@ -463,26 +601,38 @@ class PatcherApp(tk.Tk):
         if not mod_name:
             raise ValueError("Mod name is required.")
 
-        original = Path(self.create_original_file.get()).expanduser()
         patched = Path(self.create_patched_file.get()).expanduser()
         output_dir = Path(self.create_output_dir.get()).expanduser()
         target_file = self.create_target_file.get().strip()
         if not target_file:
             raise ValueError("Target file is required.")
+
+        original_text = self.create_original_file.get().strip()
+        if original_text:
+            original = Path(original_text).expanduser()
+        else:
+            original = self.create_tab_backup_original_path()
+            if original.exists():
+                self.create_original_file.set(str(original))
+                self.write_log(f"Using game backup as original file: {original}")
+
         if not original.exists():
-            raise FileNotFoundError("Original file does not exist.")
+            raise FileNotFoundError("Original file does not exist. Select a clean original file or use the game backup.")
         if not patched.exists():
             raise FileNotFoundError("Modded file does not exist.")
         if original.resolve() == patched.resolve():
             raise ValueError("Original file and modded file must be different.")
 
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_parent_dir = output_dir
         patch_name = self.create_patch_file.get().strip()
         if not patch_name:
             patch_name = f"{safe_filename(mod_name, 'patch')}.xdelta"
         if not patch_name.lower().endswith(".xdelta"):
             patch_name += ".xdelta"
 
+        patch_folder_name = safe_filename(Path(patch_name).stem, "patch")
+        output_dir = output_parent_dir / patch_folder_name
+        output_dir.mkdir(parents=True, exist_ok=True)
         patch_path = output_dir / patch_name
         manifest_path = output_dir / DEFAULT_MANIFEST_NAME
 
