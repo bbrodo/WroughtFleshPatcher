@@ -5,6 +5,7 @@ _pycache
 
 build/
 dist/release/patches/*
+!dist/release/patches/.gitkeep
 
 patches/*
 !patches/example/
