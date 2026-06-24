@@ -27,8 +27,8 @@ patches/
     another_mod.xdelta
 ```
 
-Users click `Select Patch`, choose a mod's `manifest.json`, choose their game
-folder, then click `Apply Patch`.
+On the `Apply Patch` tab, users click `Select Patch`, choose a mod's
+`manifest.json`, choose their game folder, then click `Apply Patch`.
 
 ## ModdedFlesh
 
@@ -63,9 +63,26 @@ Each patch folder needs a `manifest.json`:
 `patch_file` is relative to the manifest folder, so each mod can keep its patch
 file next to its own manifest.
 
-## Create A Patch
+## Create A Patch With The GUI
 
-Put these files in a work folder:
+Use the `Create Patch` tab to generate a patch folder from a clean original file
+and a modded file. Fill in the mod name, target file, original file, modded file,
+and output folder, then click `Create Patch`.
+
+The tool creates:
+
+```text
+manifest.json
+your_patch_name.xdelta
+```
+
+The generated `manifest.json` includes the original file hash, patched file
+hash, target filename, Steam app ID, and patch filename.
+
+## Create A Patch Manually
+
+If you prefer to create a patch from PowerShell, put these files in a work
+folder:
 
 ```text
 original.pck
@@ -73,7 +90,7 @@ modded.pck
 xdelta3.exe
 ```
 
-Create the patch:
+Then run:
 
 ```powershell
 .\xdelta3.exe -e -s .\original.pck .\modded.pck .\wroughtflesh_mod.xdelta
@@ -111,3 +128,5 @@ The patched hash must match `modded.pck`.
 7. Verifies the patched hash.
 8. Replaces the target file.
 9. Can uninstall by restoring the backup.
+10. Can create a new `.xdelta` patch and `manifest.json` from original and
+    modded files.

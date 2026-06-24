@@ -43,6 +43,12 @@ def resolve_path(base_dir: Path, value: str) -> Path:
     return base_dir / path
 
 
+def safe_filename(value: str, fallback: str) -> str:
+    cleaned = "".join(char if char.isalnum() or char in ("-", "_") else "_" for char in value.strip())
+    cleaned = cleaned.strip("_")
+    return cleaned or fallback
+
+
 def load_manifest(manifest_path: Path) -> dict:
     if not manifest_path.exists():
         raise FileNotFoundError(f"Missing {manifest_path}")
@@ -142,7 +148,7 @@ class PatcherApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("720x420")
+        self.geometry("780x600")
         self.resizable(False, False)
 
         self.manifest = {}
@@ -154,6 +160,14 @@ class PatcherApp(tk.Tk):
         self.target_label = tk.StringVar(value="Target file: -")
         self.status = tk.StringVar(value="Choose the game folder, then patch.")
         self.progress = tk.DoubleVar(value=0)
+        self.create_mod_name = tk.StringVar(value="")
+        self.create_steam_app_id = tk.StringVar(value="1762010")
+        self.create_steam_install_dir = tk.StringVar(value="Wrought Flesh")
+        self.create_target_file = tk.StringVar(value="WroughtFlesh.pck")
+        self.create_original_file = tk.StringVar(value="")
+        self.create_patched_file = tk.StringVar(value="")
+        self.create_output_dir = tk.StringVar(value=str(app_dir() / PATCHES_DIR_NAME))
+        self.create_patch_file = tk.StringVar(value="")
 
         self._build_ui()
         manifest_path = default_manifest_path()
@@ -170,6 +184,26 @@ class PatcherApp(tk.Tk):
         root = ttk.Frame(self, padding=16)
         root.pack(fill=tk.BOTH, expand=True)
 
+        notebook = ttk.Notebook(root)
+        notebook.pack(fill=tk.BOTH, expand=True)
+
+        apply_tab = ttk.Frame(notebook, padding=12)
+        create_tab = ttk.Frame(notebook, padding=12)
+        notebook.add(apply_tab, text="Apply Patch")
+        notebook.add(create_tab, text="Create Patch")
+
+        self._build_apply_tab(apply_tab)
+        self._build_create_tab(create_tab)
+
+        ttk.Progressbar(root, variable=self.progress, maximum=100).pack(fill=tk.X, pady=(12, 8))
+        ttk.Label(root, textvariable=self.status).pack(anchor="w")
+
+        log_frame = ttk.LabelFrame(root, text="Log")
+        log_frame.pack(fill=tk.BOTH, expand=True, pady=(12, 0))
+        self.log = tk.Text(log_frame, height=8, wrap=tk.WORD, state=tk.DISABLED)
+        self.log.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+    def _build_apply_tab(self, root):
         title = ttk.Label(root, textvariable=self.patch_name, font=("Segoe UI", 15, "bold"))
         title.pack(anchor="w")
 
@@ -196,13 +230,41 @@ class PatcherApp(tk.Tk):
         ttk.Button(button_row, text="Apply Patch", command=lambda: self.run_worker(self.apply_patch)).pack(side=tk.LEFT, padx=8)
         ttk.Button(button_row, text="Uninstall Patch", command=lambda: self.run_worker(self.uninstall)).pack(side=tk.LEFT)
 
-        ttk.Progressbar(root, variable=self.progress, maximum=100).pack(fill=tk.X, pady=(16, 8))
-        ttk.Label(root, textvariable=self.status).pack(anchor="w")
+    def _build_create_tab(self, root):
+        ttk.Label(root, text="Create Patch", font=("Segoe UI", 15, "bold")).pack(anchor="w")
 
-        log_frame = ttk.LabelFrame(root, text="Log")
-        log_frame.pack(fill=tk.BOTH, expand=True, pady=(16, 0))
-        self.log = tk.Text(log_frame, height=9, wrap=tk.WORD, state=tk.DISABLED)
-        self.log.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        form = ttk.Frame(root)
+        form.pack(fill=tk.X, pady=(12, 0))
+
+        self._add_entry_row(form, "Mod name:", self.create_mod_name, 0)
+        self._add_entry_row(form, "Steam app ID:", self.create_steam_app_id, 1)
+        self._add_entry_row(form, "Steam install dir:", self.create_steam_install_dir, 2)
+        self._add_entry_row(form, "Target file:", self.create_target_file, 3)
+        self._add_file_row(form, "Original file:", self.create_original_file, 4)
+        self._add_file_row(form, "Modded file:", self.create_patched_file, 5)
+        self._add_folder_row(form, "Output folder:", self.create_output_dir, 6)
+        self._add_entry_row(form, "Patch filename:", self.create_patch_file, 7)
+
+        button_row = ttk.Frame(root)
+        button_row.pack(fill=tk.X, pady=(18, 0))
+        ttk.Button(button_row, text="Create Patch", command=lambda: self.run_worker(self.create_patch)).pack(side=tk.LEFT)
+
+    def _add_entry_row(self, root, label, variable, row):
+        ttk.Label(root, text=label).grid(row=row, column=0, sticky="w", pady=4)
+        ttk.Entry(root, textvariable=variable).grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+        root.columnconfigure(1, weight=1)
+
+    def _add_file_row(self, root, label, variable, row):
+        ttk.Label(root, text=label).grid(row=row, column=0, sticky="w", pady=4)
+        ttk.Entry(root, textvariable=variable).grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+        ttk.Button(root, text="Browse", command=lambda: self.browse_file(variable)).grid(row=row, column=2, pady=4)
+        root.columnconfigure(1, weight=1)
+
+    def _add_folder_row(self, root, label, variable, row):
+        ttk.Label(root, text=label).grid(row=row, column=0, sticky="w", pady=4)
+        ttk.Entry(root, textvariable=variable).grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+        ttk.Button(root, text="Browse", command=lambda: self.browse_folder(variable)).grid(row=row, column=2, pady=4)
+        root.columnconfigure(1, weight=1)
 
     def browse_patch(self):
         initial_dir = app_dir() / PATCHES_DIR_NAME
@@ -253,6 +315,16 @@ class PatcherApp(tk.Tk):
         folder = filedialog.askdirectory(title="Select game folder")
         if folder:
             self.install_dir.set(folder)
+
+    def browse_file(self, variable: tk.StringVar):
+        path = filedialog.askopenfilename(title="Select file")
+        if path:
+            variable.set(path)
+
+    def browse_folder(self, variable: tk.StringVar):
+        folder = filedialog.askdirectory(title="Select folder")
+        if folder:
+            variable.set(folder)
 
     def run_worker(self, func):
         thread = threading.Thread(target=self._worker_wrapper, args=(func,), daemon=True)
@@ -384,6 +456,68 @@ class PatcherApp(tk.Tk):
 
         self.set_progress(100, "Uninstalled. Original file restored.")
         self.write_log("Original file restored successfully.")
+
+    def create_patch(self):
+        xdelta = find_xdelta()
+        mod_name = self.create_mod_name.get().strip()
+        if not mod_name:
+            raise ValueError("Mod name is required.")
+
+        original = Path(self.create_original_file.get()).expanduser()
+        patched = Path(self.create_patched_file.get()).expanduser()
+        output_dir = Path(self.create_output_dir.get()).expanduser()
+        target_file = self.create_target_file.get().strip()
+        if not target_file:
+            raise ValueError("Target file is required.")
+        if not original.exists():
+            raise FileNotFoundError("Original file does not exist.")
+        if not patched.exists():
+            raise FileNotFoundError("Modded file does not exist.")
+        if original.resolve() == patched.resolve():
+            raise ValueError("Original file and modded file must be different.")
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        patch_name = self.create_patch_file.get().strip()
+        if not patch_name:
+            patch_name = f"{safe_filename(mod_name, 'patch')}.xdelta"
+        if not patch_name.lower().endswith(".xdelta"):
+            patch_name += ".xdelta"
+
+        patch_path = output_dir / patch_name
+        manifest_path = output_dir / DEFAULT_MANIFEST_NAME
+
+        self.write_log("Creating xdelta patch...")
+        self.set_progress(20, "Creating xdelta patch...")
+        result = subprocess.run(
+            [str(xdelta), "-e", "-s", str(original), str(patched), str(patch_path)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "xdelta3 failed.")
+
+        self.write_log("Hashing original and modded files...")
+        self.set_progress(65, "Hashing files...")
+        original_hash = sha256_file(original)
+        patched_hash = sha256_file(patched)
+
+        steam_app_id_text = self.create_steam_app_id.get().strip()
+        steam_app_id = int(steam_app_id_text) if steam_app_id_text else 0
+        manifest = {
+            "name": mod_name,
+            "steam_app_id": steam_app_id,
+            "steam_install_dir": self.create_steam_install_dir.get().strip(),
+            "target_file": target_file,
+            "original_sha256": original_hash,
+            "patched_sha256": patched_hash,
+            "patch_file": patch_name,
+            "backup_suffix": ".bak",
+        }
+
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        self.set_progress(100, "Patch created.")
+        self.write_log(f"Created patch: {patch_path}")
+        self.write_log(f"Created manifest: {manifest_path}")
 
 
 if __name__ == "__main__":
