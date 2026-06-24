@@ -18,9 +18,8 @@ jobs:
 
       - name: Zip release files
         run: |
-          cd dist
-          cd release
-          zip -r "../WroughtFleshPatcher${{ github.ref_name }}.zip" .
+          cd dist/release
+          zip -r "../../WroughtFleshPatcher${{ github.ref_name }}.zip" .
 
       - name: Create GitHub Release
         env:
